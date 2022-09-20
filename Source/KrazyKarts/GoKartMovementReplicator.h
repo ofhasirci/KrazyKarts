@@ -30,13 +30,17 @@ protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
 
-public:	
+public:
 	// Called every frame
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 
 private:
 	void ClearAcknowledgeMoves(FGoKartMove LastMove);
+
+	void UpdateServerState(const FGoKartMove& Move);
+
+	void ClientTick(float DeltaTime);
 
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_SendMove(FGoKartMove Move);
@@ -46,8 +50,13 @@ private:
 	
 	UFUNCTION()
 	void OnRep_ServerState();
+	void AutonomoousProxy_OnRep_ServerState();
+	void SimulatedProxy_OnRep_ServerState();
 
 	TArray<FGoKartMove> UnacknowledgedMoves;
+
+	float ClientTimeSinceUpdate;
+	float ClientTimeBetweenLastUpdates;
 
 	UPROPERTY()
 	UGoKartMovementComponent* MovementComponent;

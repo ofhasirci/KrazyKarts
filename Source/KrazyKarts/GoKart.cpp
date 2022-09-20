@@ -22,6 +22,8 @@ void AGoKart::BeginPlay()
 {
 	Super::BeginPlay();
 
+	SetReplicatingMovement(false);
+	
 	if (HasAuthority())
 	{
 		NetUpdateFrequency = 1;

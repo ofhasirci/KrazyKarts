@@ -37,8 +37,6 @@ public:
 
 	void SimulateMove(const FGoKartMove& Move);
 
-	FGoKartMove CreateMove(float DeltaTime);
-
 	void SetVelocity(const FVector& InVelocity);
 	FVector GetVelocity();
 	
@@ -47,6 +45,8 @@ public:
 	
 	void SetSteeringThrow(float Value);
 	float GetSteeringThrow();
+
+	FGoKartMove GetLastMove() { return LastMove; };
 
 private:
 	// The mass of the car (kg).
@@ -74,6 +74,8 @@ private:
 	float Throttle;
 	float SteeringThrow;
 
+	FGoKartMove LastMove;
+
 	void UpdateLocationFromVelocity(float DeltaTime);
 	
 	void ApplyRotation(float DeltaTime, float SteeringThrow);
@@ -81,4 +83,6 @@ private:
 	FVector GetAirResistance();
 
 	FVector GetRollingResistance();
+
+	FGoKartMove CreateMove(float DeltaTime);
 };
