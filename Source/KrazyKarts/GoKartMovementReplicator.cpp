@@ -93,26 +93,58 @@ void UGoKartMovementReplicator::ClientTick(float DeltaTime)
 	if (!MovementComponent) return;
 
 	float LerpRatio = ClientTimeSinceUpdate / ClientTimeBetweenLastUpdates;
-	
-	FVector TargetLocation = ServerState.Transform.GetLocation();
-	FVector StartLocation = ClientStartTransform.GetLocation();
 
-	float VelocityToDerivative = ClientTimeBetweenLastUpdates * 100; // 100 for converting cm/s -> m/s
+	FHermiteCubicSpline Spline = CreateSpline();
+	
+	InterpolateLocation(Spline, LerpRatio);
+
+	InterpolateDerivative(Spline, LerpRatio);
+
+	InterpolateRotation(LerpRatio);
+}
+
+FHermiteCubicSpline UGoKartMovementReplicator::CreateSpline()
+{
+	FHermiteCubicSpline Spline;
+	Spline.TargetLocation = ServerState.Transform.GetLocation();
+	Spline.StartLocation = ClientStartTransform.GetLocation();
 	// Derivative = Velocity * TimeBetweenLastUpdates;
-	FVector StartDerivative = ClientStartVelocity * VelocityToDerivative;
-	FVector TargetDerivative = ServerState.Velocity * VelocityToDerivative;
-	
-	FVector NewLocation = FMath::CubicInterp(StartLocation, StartDerivative, TargetLocation, TargetDerivative, LerpRatio);
-	GetOwner()->SetActorLocation(NewLocation);
+	Spline.StartDerivative = ClientStartVelocity * VelocityToDerivative();
+	Spline.TargetDerivative = ServerState.Velocity * VelocityToDerivative();
 
-	FVector NewDerivative = FMath::CubicInterpDerivative(StartLocation, StartDerivative, TargetLocation, TargetDerivative, LerpRatio);
-	FVector NewVelocity = NewDerivative / VelocityToDerivative;
+	return Spline;
+}
+
+float UGoKartMovementReplicator::VelocityToDerivative()
+{
+	return ClientTimeBetweenLastUpdates * 100; // 100 for converting cm/s -> m/s
+}
+
+void UGoKartMovementReplicator::InterpolateLocation(const FHermiteCubicSpline& Spline, float LerpRatio)
+{
+	FVector NewLocation = Spline.InterpolateLocation(LerpRatio);
+	if (MeshOffsetRoot)
+	{
+		MeshOffsetRoot->SetWorldLocation(NewLocation);
+	}
+}
+
+void UGoKartMovementReplicator::InterpolateDerivative(const FHermiteCubicSpline& Spline, float LerpRatio)
+{
+	FVector NewDerivative = Spline.InterpolateDerivative(LerpRatio);
+	FVector NewVelocity = NewDerivative / VelocityToDerivative();
 	MovementComponent->SetVelocity(NewVelocity);
-	
+}
+
+void UGoKartMovementReplicator::InterpolateRotation(float LerpRatio)
+{
 	FQuat TargetRotation = ServerState.Transform.GetRotation();
 	FQuat StartRotation = ClientStartTransform.GetRotation();
 	FQuat NewRotation = FQuat::Slerp(StartRotation, TargetRotation, LerpRatio);
-	GetOwner()->SetActorRotation(NewRotation);
+	if (MeshOffsetRoot)
+	{
+		MeshOffsetRoot->SetWorldRotation(NewRotation);
+	}
 }
 
 void UGoKartMovementReplicator::OnRep_ServerState()
@@ -151,8 +183,14 @@ void UGoKartMovementReplicator::SimulatedProxy_OnRep_ServerState()
 	ClientTimeBetweenLastUpdates = ClientTimeSinceUpdate;
 	ClientTimeSinceUpdate = 0.f;
 
-	ClientStartTransform = GetOwner()->GetActorTransform();
+	if (MeshOffsetRoot)
+	{
+		ClientStartTransform.SetLocation(MeshOffsetRoot->GetComponentLocation());
+		ClientStartTransform.SetRotation(MeshOffsetRoot->GetComponentQuat());
+	}
 	ClientStartVelocity = MovementComponent->GetVelocity();
+
+	GetOwner()->SetActorTransform(ServerState.Transform);
 }
 
 
@@ -160,11 +198,26 @@ void UGoKartMovementReplicator::Server_SendMove_Implementation(FGoKartMove Move)
 {
 	if (!MovementComponent) return;
 
+	ClientSimulatedTime += Move.DeltaTime;
 	MovementComponent->SimulateMove(Move);
 	UpdateServerState(Move);
 }
 
 bool UGoKartMovementReplicator::Server_SendMove_Validate(FGoKartMove Move)
 {
-	return true; // TODO: Better validation
+	float ProposedTime = ClientSimulatedTime + Move.DeltaTime;
+	bool ClientNotRunningAhead = ProposedTime < GetWorld()->TimeSeconds;
+	if (!ClientNotRunningAhead)
+	{
+		UE_LOG(LogTemp, Error, TEXT("Client running too fast."));
+		return false;
+	}
+
+	if (!Move.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("Received invalid move."));
+		return false;
+	}
+	
+	return true;
 }
